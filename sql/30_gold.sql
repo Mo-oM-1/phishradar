@@ -65,32 +65,40 @@ WITH scored AS (
     ) AS is_legit
   FROM PHISHRADAR.SILVER.DOMAINS d
   CROSS JOIN BRANDS b
+),
+-- niveau intermédiaire : on matérialise ATTACK_TYPE et THREAT_SCORE
+-- (Snowflake interdit de réutiliser un alias dans le même SELECT)
+enriched AS (
+  SELECT
+    DOMAIN, BRAND_NAME, CERT_SHA256, ISSUER, SEEN_AT, NOT_BEFORE, TLD,
+    edit_dist, jw_sim, is_legit, contains_brand,
+    CASE
+      WHEN contains_brand AND has_combo_term THEN 'COMBOSQUATTING'
+      WHEN contains_brand                    THEN 'BRAND_ABUSE'
+      WHEN edit_dist BETWEEN 1 AND 2         THEN 'TYPOSQUATTING'
+      WHEN SLD_NORM <> REGISTERED_SLD AND edit_dist = 0 THEN 'HOMOGLYPH'
+      ELSE 'FUZZY_MATCH'
+    END AS ATTACK_TYPE,
+    -- score 0-100 : pondération simple et lisible (expliquée dans le spec)
+    LEAST(100,
+        IFF(contains_brand, 50, 0)
+      + IFF(has_combo_term, 25, 0)
+      + IFF(edit_dist BETWEEN 1 AND 2, 60 - 15 * edit_dist, 0)
+      + IFF(SLD_NORM <> REGISTERED_SLD AND edit_dist <= 1, 30, 0)
+      + IFF(jw_sim >= 90, 15, 0)
+    ) AS THREAT_SCORE
+  FROM scored
 )
 SELECT
   DOMAIN, BRAND_NAME, CERT_SHA256, ISSUER, SEEN_AT, NOT_BEFORE, TLD,
-  edit_dist, jw_sim,
-  CASE
-    WHEN contains_brand AND has_combo_term THEN 'COMBOSQUATTING'
-    WHEN contains_brand                    THEN 'BRAND_ABUSE'
-    WHEN edit_dist BETWEEN 1 AND 2         THEN 'TYPOSQUATTING'
-    WHEN SLD_NORM <> REGISTERED_SLD AND edit_dist = 0 THEN 'HOMOGLYPH'
-    ELSE 'FUZZY_MATCH'
-  END AS ATTACK_TYPE,
-  -- score 0-100 : pondération simple et lisible (expliquée dans le spec)
-  LEAST(100,
-      IFF(contains_brand, 50, 0)
-    + IFF(has_combo_term, 25, 0)
-    + IFF(edit_dist BETWEEN 1 AND 2, 60 - 15 * edit_dist, 0)
-    + IFF(SLD_NORM <> REGISTERED_SLD AND edit_dist <= 1, 30, 0)
-    + IFF(jw_sim >= 90, 15, 0)
-  ) AS THREAT_SCORE,
+  edit_dist, jw_sim, ATTACK_TYPE, THREAT_SCORE,
   CASE
     WHEN THREAT_SCORE >= 85 THEN 'CRITICAL'
     WHEN THREAT_SCORE >= 70 THEN 'HIGH'
     ELSE 'MEDIUM'
   END AS SEVERITY,
   CURRENT_TIMESTAMP() AS SCORED_AT
-FROM scored
+FROM enriched
 WHERE NOT is_legit
   AND (contains_brand OR edit_dist <= 2 OR jw_sim >= 90)
 QUALIFY THREAT_SCORE >= 60;   -- seuil d'alerte (brands.yml : alert_score_min)
