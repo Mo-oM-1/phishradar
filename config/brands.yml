@@ -1,0 +1,67 @@
+# Marques protégées - référentiel v1
+# Chaque marque : domaines légitimes (whitelist) + mots-clés de pré-filtrage
+brands:
+  - name: BNP Paribas
+    legit_domains: [bnpparibas.com, bnpparibas.fr, bnpparibas.net, mabanque.bnpparibas]
+    keywords: [bnpparibas, bnp-paribas, bnparibas, bnp]
+
+  - name: Crédit Agricole
+    legit_domains: [credit-agricole.fr, credit-agricole.com, ca-*.fr]
+    keywords: [creditagricole, credit-agricole, credit_agricole]
+
+  - name: Société Générale
+    legit_domains: [societegenerale.fr, societegenerale.com, particuliers.sg.fr]
+    keywords: [societegenerale, societe-generale, socgen]
+
+  - name: Crédit Mutuel
+    legit_domains: [creditmutuel.fr, creditmutuel.com, cmut.fr]
+    keywords: [creditmutuel, credit-mutuel, cmut]
+
+  - name: La Banque Postale
+    legit_domains: [labanquepostale.fr, labanquepostale.com]
+    keywords: [labanquepostale, banquepostale, banque-postale]
+
+  - name: Caisse d'Épargne
+    legit_domains: [caisse-epargne.fr]
+    keywords: [caisse-epargne, caisseepargne, caissedepargne]
+
+  - name: Banque Populaire
+    legit_domains: [banquepopulaire.fr]
+    keywords: [banquepopulaire, banque-populaire]
+
+  - name: BoursoBank
+    legit_domains: [boursobank.com, boursorama.com]
+    keywords: [boursobank, boursorama]
+
+  - name: Hello bank!
+    legit_domains: [hellobank.fr]
+    keywords: [hellobank, hello-bank]
+
+  - name: PayPal
+    legit_domains: [paypal.com, paypal.fr]
+    keywords: [paypal, paypa1, payp4l]
+
+# Mots-clés de combosquatting (marque + mot rassurant)
+combosquat_terms:
+  - secure
+  - security
+  - securite
+  - login
+  - connexion
+  - verify
+  - verification
+  - compte
+  - account
+  - espace-client
+  - espaceclient
+  - support
+  - auth
+  - banque
+  - update
+  - confirm
+
+# Seuils de scoring (utilisés côté SQL)
+thresholds:
+  editdistance_max: 2        # typosquatting : distance <= 2
+  jarowinkler_min: 0.90      # similarité forte
+  alert_score_min: 60        # score minimal pour créer une alerte GOLD

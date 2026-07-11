@@ -1,0 +1,6 @@
+__pycache__/
+.ct_state.json
+*.pyc
+.env
+*.jsonl.gz
+.DS_Store

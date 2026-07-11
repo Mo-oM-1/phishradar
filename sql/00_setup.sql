@@ -1,0 +1,31 @@
+-- =============================================================================
+-- PhishRadar - 00 : Infrastructure (à exécuter en ACCOUNTADMIN)
+-- Architecture médaillon : RAW -> SILVER -> GOLD (+ GOV pour la gouvernance)
+-- =============================================================================
+USE ROLE ACCOUNTADMIN;
+
+CREATE DATABASE IF NOT EXISTS PHISHRADAR;
+CREATE SCHEMA IF NOT EXISTS PHISHRADAR.RAW;
+CREATE SCHEMA IF NOT EXISTS PHISHRADAR.SILVER;
+CREATE SCHEMA IF NOT EXISTS PHISHRADAR.GOLD;
+CREATE SCHEMA IF NOT EXISTS PHISHRADAR.GOV;
+
+-- Warehouses séparés ingestion / analytique (bonne pratique certif : isolation
+-- des charges). XS + auto-suspend court = maîtrise des crédits du trial.
+CREATE WAREHOUSE IF NOT EXISTS WH_INGEST
+  WAREHOUSE_SIZE = 'XSMALL' AUTO_SUSPEND = 60 AUTO_RESUME = TRUE
+  INITIALLY_SUSPENDED = TRUE COMMENT = 'PUT + COPY + tasks de transformation';
+
+CREATE WAREHOUSE IF NOT EXISTS WH_ANALYTICS
+  WAREHOUSE_SIZE = 'XSMALL' AUTO_SUSPEND = 60 AUTO_RESUME = TRUE
+  INITIALLY_SUSPENDED = TRUE COMMENT = 'Requêtes analystes SOC';
+
+-- Resource monitor : coupe tout à 90 % de 30 crédits/mois. Garde-fou trial.
+CREATE RESOURCE MONITOR IF NOT EXISTS RM_PHISHRADAR
+  WITH CREDIT_QUOTA = 30 FREQUENCY = MONTHLY START_TIMESTAMP = IMMEDIATELY
+  TRIGGERS ON 75 PERCENT DO NOTIFY
+           ON 90 PERCENT DO SUSPEND
+           ON 100 PERCENT DO SUSPEND_IMMEDIATE;
+
+ALTER WAREHOUSE WH_INGEST    SET RESOURCE_MONITOR = RM_PHISHRADAR;
+ALTER WAREHOUSE WH_ANALYTICS SET RESOURCE_MONITOR = RM_PHISHRADAR;
