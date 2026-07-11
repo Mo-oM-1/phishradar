@@ -211,12 +211,17 @@ def main() -> None:
                             continue                       # entrée non parsable : on passe
                         if msg and any(is_candidate(d) for d in msg["data"]["leaf_cert"]["all_domains"]):
                             stats["kept"] += 1
+                            hits = [d for d in msg["data"]["leaf_cert"]["all_domains"] if is_candidate(d)]
+                            print(f"    ⚠ suspect : {', '.join(hits)}", flush=True)
                             buffer.append(json.dumps(msg, separators=(",", ":")))
                     start += len(entries)                  # le log peut répondre par tranches
                 state[lg["url"]] = start
             except Exception as exc:
                 print(f"[!] {lg['name']} : {exc}", file=sys.stderr, flush=True)
 
+        # heartbeat : un état clair à chaque cycle
+        print(f"[i] vus={stats['seen']:,}  gardés={stats['kept']:,}  "
+              f"en attente d'envoi={len(buffer)}", flush=True)
         STATE_FILE.write_text(json.dumps(state))
         if len(buffer) >= BATCH_SIZE or (buffer and time.time() - last_flush > FLUSH_SECONDS):
             flush(buffer, conn)
