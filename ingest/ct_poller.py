@@ -40,8 +40,11 @@ LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "20"))
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "200"))        # certs par fichier PUT
 FLUSH_SECONDS = int(os.environ.get("FLUSH_SECONDS", "60"))
-MAX_ENTRIES_PER_CYCLE = int(os.environ.get("MAX_ENTRIES_PER_CYCLE", "3072"))  # par log
+MAX_ENTRIES_PER_CYCLE = int(os.environ.get("MAX_ENTRIES_PER_CYCLE", "5000"))  # par log/cycle
 MAX_LOGS = int(os.environ.get("MAX_LOGS", "4"))              # nb de logs suivis
+# Backfill initial : combien d'entrées récentes remonter au 1er passage sur un
+# log jamais vu. Plus grand = on brasse plus de volume vite = alertes plus tôt.
+START_BACKFILL = int(os.environ.get("START_BACKFILL", "20000"))
 STAGE = "@PHISHRADAR.RAW.CERT_STAGE"
 STATE_FILE = Path(__file__).parent / ".ct_state.json"
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "brands.yml"
@@ -72,16 +75,34 @@ def is_candidate(domain: str) -> bool:
 
 
 # --- Découverte des CT logs actifs (liste officielle Google) ------------------
+# On privilégie les logs à FORT trafic (Google, Let's Encrypt, Cloudflare) :
+# c'est là que passe l'essentiel des certificats, donc les domaines de phishing.
+HIGH_VOLUME = ("argon", "xenon", "oak", "nimbus", "wyvern", "sphinx")
+
+
 def discover_logs() -> list[dict]:
-    """Retourne les logs RFC 6962 'usable' de la liste Chrome, les plus récents d'abord."""
+    """Logs RFC 6962 'usable' : parmi les opérateurs à fort volume, on retient
+    ceux dont le tree_size est le plus grand (= shard le plus actif du moment,
+    typiquement la période courante 2026h2 plutôt qu'un shard 2027 encore vide)."""
     data = requests.get(LOG_LIST_URL, timeout=30).json()
-    logs = []
+    candidates = []
     for op in data.get("operators", []):
         for lg in op.get("logs", []):                     # RFC 6962 uniquement
-            if "usable" in lg.get("state", {}):
-                logs.append({"name": lg["description"], "url": lg["url"].rstrip("/") + "/"})
-    logs.sort(key=lambda l: l["name"], reverse=True)      # heuristique : récents d'abord
-    return logs[:MAX_LOGS]
+            if "usable" not in lg.get("state", {}):
+                continue
+            if any(h in lg["description"].lower() for h in HIGH_VOLUME):
+                candidates.append({"name": lg["description"],
+                                   "url": lg["url"].rstrip("/") + "/"})
+    # mesure du trafic réel via get-sth (tree_size)
+    sized = []
+    for c in candidates:
+        try:
+            sth = requests.get(c["url"] + "ct/v1/get-sth", timeout=15).json()
+            sized.append((sth.get("tree_size", 0), c))
+        except Exception:
+            continue
+    sized.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in sized[:MAX_LOGS]]
 
 
 # --- Parsing RFC 6962 ----------------------------------------------------------
@@ -172,7 +193,7 @@ def main() -> None:
             try:
                 sth = session.get(lg["url"] + "ct/v1/get-sth", timeout=30).json()
                 tree_size = sth["tree_size"]
-                start = state.get(lg["url"], max(0, tree_size - 256))  # 1er run : pas d'historique
+                start = state.get(lg["url"], max(0, tree_size - START_BACKFILL))  # 1er run : backfill
                 end_target = min(tree_size, start + MAX_ENTRIES_PER_CYCLE)
                 while start < end_target:
                     r = session.get(
