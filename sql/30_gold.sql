@@ -15,18 +15,19 @@ CREATE OR REPLACE TABLE BRANDS (
   LEGIT_DOMAINS ARRAY     -- whitelist : jamais d'alerte sur ces domaines
 );
 
-INSERT INTO BRANDS
-SELECT * FROM VALUES
-  ('BNP Paribas',       'bnpparibas',      ['bnpparibas.com','bnpparibas.fr','bnpparibas.net','mabanque.bnpparibas']::ARRAY),
-  ('Crédit Agricole',   'creditagricole',  ['credit-agricole.fr','credit-agricole.com']::ARRAY),
-  ('Société Générale',  'societegenerale', ['societegenerale.fr','societegenerale.com','sg.fr']::ARRAY),
-  ('Crédit Mutuel',     'creditmutuel',    ['creditmutuel.fr','creditmutuel.com','cmut.fr']::ARRAY),
-  ('La Banque Postale', 'banquepostale',   ['labanquepostale.fr','labanquepostale.com']::ARRAY),
-  ('Caisse d''Épargne', 'caisseepargne',   ['caisse-epargne.fr']::ARRAY),
-  ('Banque Populaire',  'banquepopulaire', ['banquepopulaire.fr']::ARRAY),
-  ('BoursoBank',        'boursobank',      ['boursobank.com','boursorama.com']::ARRAY),
-  ('Hello bank!',       'hellobank',       ['hellobank.fr']::ARRAY),
-  ('PayPal',            'paypal',          ['paypal.com','paypal.fr']::ARRAY);
+-- Note : les littéraux ARRAY ne sont pas acceptés dans une clause VALUES,
+-- d'où l'INSERT ... SELECT ... UNION ALL (ARRAY_CONSTRUCT par ligne).
+INSERT INTO BRANDS (BRAND_NAME, BRAND_TOKEN, LEGIT_DOMAINS)
+  SELECT 'BNP Paribas',       'bnpparibas',      ARRAY_CONSTRUCT('bnpparibas.com','bnpparibas.fr','bnpparibas.net','mabanque.bnpparibas')
+  UNION ALL SELECT 'Crédit Agricole',   'creditagricole',  ARRAY_CONSTRUCT('credit-agricole.fr','credit-agricole.com')
+  UNION ALL SELECT 'Société Générale',  'societegenerale', ARRAY_CONSTRUCT('societegenerale.fr','societegenerale.com','sg.fr')
+  UNION ALL SELECT 'Crédit Mutuel',     'creditmutuel',    ARRAY_CONSTRUCT('creditmutuel.fr','creditmutuel.com','cmut.fr')
+  UNION ALL SELECT 'La Banque Postale', 'banquepostale',   ARRAY_CONSTRUCT('labanquepostale.fr','labanquepostale.com')
+  UNION ALL SELECT 'Caisse d''Épargne', 'caisseepargne',   ARRAY_CONSTRUCT('caisse-epargne.fr')
+  UNION ALL SELECT 'Banque Populaire',  'banquepopulaire', ARRAY_CONSTRUCT('banquepopulaire.fr')
+  UNION ALL SELECT 'BoursoBank',        'boursobank',      ARRAY_CONSTRUCT('boursobank.com','boursorama.com')
+  UNION ALL SELECT 'Hello bank!',       'hellobank',       ARRAY_CONSTRUCT('hellobank.fr')
+  UNION ALL SELECT 'PayPal',            'paypal',          ARRAY_CONSTRUCT('paypal.com','paypal.fr');
 
 -- Termes de combosquatting (marque + mot rassurant)
 CREATE OR REPLACE TABLE COMBO_TERMS (TERM STRING);
