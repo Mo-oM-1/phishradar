@@ -29,7 +29,16 @@ INSERT INTO BRANDS (BRAND_NAME, BRAND_TOKEN, LEGIT_DOMAINS)
   UNION ALL SELECT 'Hello bank!',       'hellobank',       ARRAY_CONSTRUCT('hellobank.fr')
   UNION ALL SELECT 'PayPal',            'paypal',          ARRAY_CONSTRUCT('paypal.com','paypal.fr');
 
--- Termes de combosquatting (marque + mot rassurant)
+-- Whitelist à plat : les domaines légitimes des marques, une ligne chacun.
+-- (Une table plate remplace le FLATTEN corrélé, interdit dans une Dynamic Table.)
+CREATE OR REPLACE TABLE LEGIT (LEGIT_DOMAIN STRING);
+INSERT INTO LEGIT
+  SELECT l.value::STRING
+  FROM BRANDS, LATERAL FLATTEN(input => LEGIT_DOMAINS) l;
+
+-- Termes de combosquatting : conservés pour documentation. La Dynamic Table
+-- les applique via un RLIKE inliné (voir COMBO_REGEX plus bas) car un EXISTS
+-- corrélé sur cette table n'est pas supporté dans une Dynamic Table.
 CREATE OR REPLACE TABLE COMBO_TERMS (TERM STRING);
 INSERT INTO COMBO_TERMS VALUES
   ('secure'),('security'),('securite'),('login'),('connexion'),('verify'),
@@ -42,7 +51,17 @@ CREATE OR REPLACE DYNAMIC TABLE ALERTS
   TARGET_LAG = '5 minutes'
   WAREHOUSE = WH_INGEST
 AS
-WITH scored AS (
+WITH
+-- 1. Retirer les domaines légitimes AVANT le scoring (anti-join, pas de sous-requête)
+clean AS (
+  SELECT d.*
+  FROM PHISHRADAR.SILVER.DOMAINS d
+  LEFT JOIN LEGIT l
+    ON d.DOMAIN = l.LEGIT_DOMAIN OR d.DOMAIN LIKE '%.' || l.LEGIT_DOMAIN
+  WHERE l.LEGIT_DOMAIN IS NULL
+),
+-- 2. Scorer chaque domaine restant contre chaque marque
+scored AS (
   SELECT
     d.DOMAIN,
     d.REGISTERED_SLD,
@@ -57,13 +76,10 @@ WITH scored AS (
     EDITDISTANCE(d.SLD_NORM, b.BRAND_TOKEN)            AS edit_dist,
     JAROWINKLER_SIMILARITY(d.SLD_NORM, b.BRAND_TOKEN)  AS jw_sim,
     CONTAINS(REPLACE(d.DOMAIN, '-', ''), b.BRAND_TOKEN) AS contains_brand,
-    EXISTS (SELECT 1 FROM COMBO_TERMS t WHERE CONTAINS(d.DOMAIN, t.TERM)) AS has_combo_term,
-    -- whitelist : le domaine (ou son parent) est un domaine légitime
-    EXISTS (
-      SELECT 1 FROM TABLE(FLATTEN(b.LEGIT_DOMAINS)) l
-      WHERE d.DOMAIN = l.VALUE::STRING OR ENDSWITH(d.DOMAIN, '.' || l.VALUE::STRING)
-    ) AS is_legit
-  FROM PHISHRADAR.SILVER.DOMAINS d
+    -- combo-terms via RLIKE inliné (équivalent à un EXISTS sur COMBO_TERMS,
+    -- mais supporté dans une Dynamic Table)
+    (d.DOMAIN RLIKE '.*(secure|security|securite|login|connexion|verify|verification|compte|account|espace-client|espaceclient|support|auth|banque|update|confirm).*') AS has_combo_term
+  FROM clean d
   CROSS JOIN BRANDS b
 ),
 -- niveau intermédiaire : on matérialise ATTACK_TYPE et THREAT_SCORE
@@ -71,7 +87,7 @@ WITH scored AS (
 enriched AS (
   SELECT
     DOMAIN, BRAND_NAME, CERT_SHA256, ISSUER, SEEN_AT, NOT_BEFORE, TLD,
-    edit_dist, jw_sim, is_legit, contains_brand,
+    edit_dist, jw_sim, contains_brand,
     CASE
       WHEN contains_brand AND has_combo_term THEN 'COMBOSQUATTING'
       WHEN contains_brand                    THEN 'BRAND_ABUSE'
@@ -99,9 +115,9 @@ SELECT
   END AS SEVERITY,
   CURRENT_TIMESTAMP() AS SCORED_AT
 FROM enriched
-WHERE NOT is_legit
-  AND (contains_brand OR edit_dist <= 2 OR jw_sim >= 90)
+WHERE (contains_brand OR edit_dist <= 2 OR jw_sim >= 90)
   AND THREAT_SCORE >= 60;   -- seuil d'alerte (brands.yml : alert_score_min)
+                            -- (les domaines légitimes sont déjà retirés dans le CTE clean)
                             -- (WHERE et non QUALIFY : THREAT_SCORE vient du CTE, pas d'une fonction fenêtre)
 
 -- --- Vue analyste : file de triage ------------------------------------------
