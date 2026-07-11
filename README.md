@@ -32,10 +32,10 @@ ct_poller.py : parsing X.509 + pré-filtre marques (~99,9 % écarté)
 #    sql/00_setup.sql → 01_rbac.sql → 10_raw.sql → 20_silver.sql
 #    → 30_gold.sql → 40_governance.sql → 50_share.sql
 
-# 2. Collecteur (rien d'autre à installer ni héberger)
-pip install -r ingest/requirements.txt
+# 2. Collecteur (rien d'autre à installer ni héberger) - géré avec uv
+uv sync
 export SNOWFLAKE_ACCOUNT=xxx SNOWFLAKE_USER=xxx SNOWFLAKE_PASSWORD=xxx
-python ingest/ct_poller.py
+uv run ingest/ct_poller.py
 ```
 
 Le collecteur découvre automatiquement les CT logs actifs via la liste officielle Chrome, mémorise sa position (`.ct_state.json`) et reprend où il s'était arrêté. Premières alertes dans `GOLD.V_TRIAGE` en quelques minutes.
@@ -62,6 +62,7 @@ Le pré-filtrage côté client écarte ~99,9 % du flux avant Snowflake. Warehous
 ## Structure
 
 ```
+pyproject.toml       Dépendances + métadonnées projet (gérées avec uv)
 config/brands.yml    Référentiel marques + seuils
 ingest/ct_poller.py  Collecteur CT (RFC 6962) + parsing X.509 + PUT Snowflake
 sql/00→50            Infra, RBAC, RAW, SILVER, GOLD, gouvernance, share
