@@ -101,7 +101,8 @@ SELECT
 FROM enriched
 WHERE NOT is_legit
   AND (contains_brand OR edit_dist <= 2 OR jw_sim >= 90)
-QUALIFY THREAT_SCORE >= 60;   -- seuil d'alerte (brands.yml : alert_score_min)
+  AND THREAT_SCORE >= 60;   -- seuil d'alerte (brands.yml : alert_score_min)
+                            -- (WHERE et non QUALIFY : THREAT_SCORE vient du CTE, pas d'une fonction fenêtre)
 
 -- --- Vue analyste : file de triage ------------------------------------------
 CREATE OR REPLACE VIEW V_TRIAGE AS
